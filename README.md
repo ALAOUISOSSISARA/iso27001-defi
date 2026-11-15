@@ -60,6 +60,41 @@ Résultat :
 Astuce : dans Vercel → *Settings → Domains*, renommez le sous-domaine en quelque chose de court
 (ex. `iso27001-defi.vercel.app`) : il s'affiche sous le QR code.
 
+## Déroulé avec la présentation Canva (v2)
+
+Le site suit la présentation : **7 votes non notés** pendant l'exposé, puis le **quiz final de 17 questions**, classé.
+
+| Étape du site | Slide Canva |
+|---|---|
+| Lobby (QR code) | « Sortez vos téléphones » |
+| Vote 1 à Vote 6 | les slides « VOTE 1 » à « VOTE 6 » |
+| Vote 7 · 1er tour, puis 2e tour | « VOTE 7 · Débat express » (vote, arguments, revote) |
+| Place au quiz, puis 17 questions, podium | « Quiz final » |
+
+Sur le PC de projection, gardez deux fenêtres : **Canva** et **/admin**. À chaque slide VOTE :
+`Alt+Tab` vers /admin → **→** ouvre le vote → les résultats s'affichent seuls → `Alt+Tab` retour à Canva.
+
+- Les votes rapportent 0 point. Votes 2, 3 et 4 ont une bonne réponse affichée ; les autres montrent seulement la répartition.
+- Pour raccourcir le quiz : Supabase → Table Editor → `steps` → décochez `active` sur les questions à sauter.
+- Le kit DdA est servi sur `/kit` (fichier dans `files/`).
+
+**Mise à jour d'une base déjà installée :** réexécutez `schema.sql` (il ajoute les colonnes sans rien casser) puis `seed.sql`.
+
+## Présentation web intégrée (v3) — `/presentation`
+
+Toute la présentation (39 slides) tourne dans le site, avec les votes et le quiz intégrés.
+
+1. Sur le PC projeté, ouvrez `https://…vercel.app/presentation`, connectez-vous (compte présentateur), touche **F** pour le plein écran.
+2. Une seule touche : **→** (ou Espace / télécommande). Elle fait avancer les slides, fait apparaître les animations, ouvre chaque vote, puis passe à la suite après la révélation. Sur la slide « Quiz final », → lance le quiz, puis le podium, puis la fin de l'histoire.
+3. **←** revient en arrière. Une barre discrète apparaît en bas au survol : Joueurs, Réinitialiser le jeu, Plein écran.
+4. Les téléphones suivent : entre deux votes ils affichent « Suivez la présentation » avec la partie en cours.
+
+**Plan B (hors ligne)** : sur l'écran de connexion, « Présenter sans le site » affiche toutes les slides sans votes. Gardez aussi le PDF.
+
+**Mise à jour d'une base déjà installée** : réexécutez `supabase/schema.sql` (ajoute la phase « slide »). `seed.sql` est inchangé depuis la v2.
+
+Pour modifier une slide : `js/slides.js` (une entrée par slide, dans l'ordre).
+
 ---
 
 ## 4. La veille de la présentation

@@ -8,10 +8,11 @@
     autoReveal: true, revealing: false,
     lastBoard: [], refs: {}, tick: null, podiumTimers: [],
   };
-  const isQ = s => s && (s.kind === 'question' || s.kind === 'estimate');
+  const isQ = s => s && ['question', 'estimate', 'multi'].includes(s.kind) && s.scored !== false;
+  const isVote = s => s && s.scored === false;
   const cur = () => A.steps.find(s => s.idx === A.state.step);
   const qSteps = () => A.steps.filter(isQ);
-  const playerUrl = () => (APP_CONFIG.PLAYER_URL || (location.origin + location.pathname.replace(/admin(\.html)?$/, ''))).replace(/\/$/, '') + '/';
+  const playerUrl = () => (APP_CONFIG.PLAYER_URL || (location.origin + location.pathname.replace(/(admin|presentation)(\.html)?$/, ''))).replace(/\/$/, '') + '/';
 
   if (!Backend.configured) {
     root.append(h('div', { class: 'login' }, h('h2', {}, 'Configuration manquante'),
@@ -40,12 +41,14 @@
     } },
       h('span', { class: 'tag' }, 'Espace présentateur'),
       h('div', { class: 'brand' }, 'ISO ', h('em', {}, '27001')),
-      email, pass, btn, err));
+      email, pass, btn, err,
+      window.DECK_MODE ? h('button', { class: 'btn ghost', type: 'button', onclick: () => window.DECK.offline() }, 'Présenter sans le site (hors ligne)') : null,
+      window.DECK_MODE ? h('p', { class: 'muted', style: 'font-size:.85rem;margin:0' }, 'Hors ligne : toutes les slides s\'affichent, les votes et le quiz sont désactivés.') : null));
   }
 
   async function start(session) {
     try {
-      A.steps = await Backend.rpc('admin_get_steps');
+      A.steps = (await Backend.rpc('admin_get_steps')).filter(x => x.active !== false);
     } catch (e) {
       if (e.code === 'NOT_ADMIN') {
         root.replaceChildren(h('div', { class: 'login' },
@@ -62,6 +65,7 @@
     await loadState();
     buildStage();
     render();
+    if (window.DECK_MODE) window.DECK.ready(window.GAME);
     Backend.onStateChange(async () => { const k = key(); await loadState(); if (key() !== k) { A.view = 'main'; render(); } }, 4000);
     setInterval(pollStats, 1000);
     pollStats();
@@ -113,12 +117,14 @@
   function next() {
     act(async () => {
       const st = A.state, s = cur();
-      const last = Math.max(...A.steps.map(x => x.idx));
-      const after = () => (st.step < last ? goto(st.step + 1) : podium());
+      const i = A.steps.findIndex(x => x.idx === st.step);
+      const nxt = A.steps[i + 1];
+      const after = () => (nxt ? goto(nxt.idx) : podium());
       if (st.phase === 'lobby') return goto(A.steps[0].idx);
       if (st.phase === 'show') return after();
       if (st.phase === 'question') return reveal();
       if (st.phase === 'reveal') {
+        if (isVote(s)) return after();
         const story = (s && s.story) || [];
         if (A.view === 'main' && A.storyIdx < story.length) { A.storyIdx++; return render(); }
         if (A.view === 'main') return showBoard();
@@ -131,8 +137,9 @@
       const st = A.state;
       if (st.phase === 'reveal' && A.view === 'board') { A.view = 'main'; return render(); }
       if (st.phase === 'reveal' && A.storyIdx > 0) { A.storyIdx--; return render(); }
-      if (st.phase === 'podium') return goto(Math.max(...A.steps.map(x => x.idx)));
-      if (st.step > A.steps[0].idx) return goto(st.step - 1);
+      if (st.phase === 'podium') return goto(A.steps[A.steps.length - 1].idx);
+      const i = A.steps.findIndex(x => x.idx === st.step);
+      if (i > 0) return goto(A.steps[i - 1].idx);
     });
   }
 
@@ -172,6 +179,7 @@
         h('button', { class: 'btn ghost', onclick: openReset }, 'Réinitialiser'),
         h('button', { class: 'btn ghost', onclick: logout }, 'Déconnexion')));
     root.replaceChildren(A.refs.stage);
+    if (window.DECK_MODE) { A.refs.stage.querySelector('.controls').classList.add('hidden'); return; }
     document.addEventListener('keydown', e => {
       if (e.target.closest && e.target.closest('input, .modal, .drawer')) return;
       if (['ArrowRight', ' ', 'PageDown', 'Enter'].includes(e.key)) { e.preventDefault(); next(); }
@@ -186,15 +194,18 @@
 
   function nextLabel() {
     const st = A.state, s = cur();
-    const last = Math.max(...A.steps.map(x => x.idx));
-    if (st.phase === 'lobby') return 'Lancer le défi ▶';
+    const i = A.steps.findIndex(x => x.idx === st.step);
+    const nxt = A.steps[i + 1];
+    if (st.phase === 'lobby') return isVote(A.steps[0]) ? 'Ouvrir le vote 1 ▶' : 'Lancer le défi ▶';
+    if (st.phase === 'question' && isVote(s)) return 'Clore le vote ▶';
     if (st.phase === 'question') return 'Révéler ▶';
     if (st.phase === 'podium') return 'Terminé';
+    if (st.phase === 'reveal' && isVote(s)) return nxt ? (isVote(nxt) ? `Ouvrir le ${nxt.label.toLowerCase()} ▶` : 'Suite ▶') : 'Podium ▶';
     if (st.phase === 'reveal' && A.view === 'main') {
       const story = (s && s.story) || [];
       return A.storyIdx < story.length ? `Ce qui s'est passé (${A.storyIdx + 1}/${story.length}) ▶` : 'Classement ▶';
     }
-    return st.step < last ? 'Suite ▶' : 'Podium ▶';
+    return nxt ? (isVote(nxt) ? `Ouvrir le ${nxt.label.toLowerCase()} ▶` : 'Suite ▶') : 'Podium ▶';
   }
 
   // ------------------------------------------------------------------
@@ -213,7 +224,7 @@
     const qn = s ? qs.findIndex(x => x.idx === s.idx) + 1 : 0;
     A.refs.head.replaceChildren(
       h('span', { class: 'tag' }, st.phase === 'lobby' ? 'Module PCA / PRA' : st.phase === 'podium' ? 'Classement final' : (s && s.clause) || ''),
-      h('span', { class: 'count' }, (st.phase !== 'lobby' && st.phase !== 'podium' && qn) ? `Question ${qn} / ${qs.length}` : ''));
+      h('span', { class: 'count' }, (st.phase === 'lobby' || st.phase === 'podium') ? '' : (s && s.label) ? s.label : qn ? `Question ${qn} / ${qs.length}` : ''));
 
     const b = A.refs.body;
     if (st.phase === 'lobby') b.replaceChildren(viewLobby());
@@ -252,7 +263,7 @@
     A.refs.names = h('div', { class: 'names' });
     return h('div', { class: 'lobby' },
       h('div', {},
-        h('div', { class: 'brand' }, 'ISO ', h('em', {}, '27001'), h('br'), 'Le défi'),
+        h('div', { class: 'brand' }, 'ISO ', h('em', {}, '27001'), h('span', { class: 'spark s2' }, '✦'), h('br'), h('i', {}, 'Le défi'), ' ', h('span', { class: 'spark' }, '✦')),
         h('div', { class: 'sub' }, 'Scannez le QR code, choisissez un pseudo. Tout ce qu\'on présente peut tomber.'),
         A.refs.count, A.refs.names),
       h('div', { class: 'qr-card' }, qrBox, h('div', { class: 'url' }, playerUrl().replace(/^https?:\/\//, ''))));
@@ -297,8 +308,10 @@
     const stats = A.stats || { distribution: [], values: [], players: 0, answered: 0 };
     const storyMode = revealed && A.storyIdx > 0;
     A.refs.answered = h('div', { class: 'answered-count' });
+    const hasKey = s.correct_choice != null || (s.correct_items != null);
     const side = revealed
-      ? h('div', { class: 'answered-count' }, h('b', {}, stats.answered), ` réponses · `, h('b', {}, stats.correct_count || 0), ' justes')
+      ? h('div', { class: 'answered-count' }, h('b', {}, stats.answered), isVote(s) && !hasKey ? ' votes' : ' réponses',
+          hasKey ? [' · ', h('b', {}, stats.correct_count || 0), s.kind === 'multi' ? ' sans faute' : ' justes'] : null)
       : h('div', {}, countdownEl(s), A.refs.answered);
 
     const head = h('div', { class: 'q-wrap' },
@@ -317,26 +330,62 @@
     }
 
     let main;
-    if (s.kind === 'estimate') main = revealed ? estimateReveal(s, stats) : h('div', { class: 'est-stage' },
+    if (s.kind === 'multi') main = multiView(s, stats, revealed);
+    else if (s.kind === 'estimate') main = revealed ? estimateReveal(s, stats) : h('div', { class: 'est-stage' },
       h('div', { class: 'est-waiting' }, `Réglez votre estimation sur le téléphone · entre ${Number(s.est_min)} et ${Number(s.est_max)} ${s.est_unit || ''}`));
     else {
       const total = stats.distribution.reduce((a, d) => a + Number(d.n), 0) || 0;
-      main = h('div', { class: 'tiles' + (revealed ? ' revealed' : '') }, s.options.map((opt, i) => {
+      const prev = stats.previous || null;
+      const prevTotal = prev ? prev.reduce((a, d) => a + Number(d.n), 0) : 0;
+      const keyed = s.correct_choice != null;
+      main = h('div', { class: 'tiles' + (revealed ? ' revealed' : '') + (keyed ? '' : ' neutral') + (s.options.length === 2 ? ' duo' : '') }, s.options.map((opt, i) => {
         const n = Number((stats.distribution.find(d => d.choice === i) || {}).n || 0);
         const pct = total ? n / total : 0;
         const fill = h('div', { class: 'fill' });
         if (revealed) requestAnimationFrame(() => requestAnimationFrame(() => (fill.style.transform = `scaleX(${pct})`)));
-        return h('div', { class: `tile c${i}` + (revealed ? (i === s.correct_choice ? ' right' : ' wrong') : '') },
+        const pn = prev ? Number((prev.find(d => d.choice === i) || {}).n || 0) : 0;
+        return h('div', { class: `tile c${i}` + (revealed && keyed ? (i === s.correct_choice ? ' right' : ' wrong') : '') },
           fill,
-          h('span', { class: 'shape' }, revealed && i === s.correct_choice ? '✓' : SHAPES[i]),
-          h('span', { class: 'label' }, opt),
+          h('span', { class: 'shape' }, revealed && keyed && i === s.correct_choice ? '✓' : SHAPES[i]),
+          h('span', { class: 'label' }, opt,
+            revealed && prev ? h('small', { class: 'was' }, `1er tour : ${prevTotal ? Math.round(pn / prevTotal * 100) : 0} %`) : null),
           h('span', { class: 'stat' }, revealed ? `${n} · ${Math.round(pct * 100)} %` : ''));
       }));
+      if (revealed && stats.changed != null) {
+        main = h('div', {}, main, h('div', { class: 'changed' },
+          h('b', {}, stats.changed), ` personne${stats.changed > 1 ? 's ont' : ' a'} changé d'avis`,
+          h('span', { class: 'muted' }, ` sur ${stats.compared} ayant voté aux deux tours`)));
+      }
     }
 
     const out = [head, main];
-    if (revealed && s.explanation) out.push(h('div', { class: 'explain' }, h('b', {}, 'Pourquoi ? '), s.explanation));
+    if (revealed && s.explanation) out.push(h('div', { class: 'explain' }, h('b', {}, isVote(s) ? 'À retenir · ' : 'Pourquoi ? '), s.explanation));
     return out;
+  }
+
+  // Vote à plusieurs éléments : une ligne par élément, barre empilée par option
+  function multiView(s, stats, revealed) {
+    const dist = stats.item_distribution || [];
+    const legend = h('div', { class: 'mlegend' }, s.options.map((o, i) => h('span', {}, h('i', { class: `sw c${i}` }), o)));
+    const rows = s.items.map((item, k) => {
+      const counts = s.options.map((_, i) => Number((dist.find(d => d.item === k && d.choice === i) || {}).n || 0));
+      const tot = counts.reduce((a, b) => a + b, 0);
+      const good = s.correct_items ? s.correct_items[k] : null;
+      const bar = h('div', { class: 'mbar' }, counts.map((n, i) => {
+        const seg = h('div', { class: `seg c${i}` + (revealed && good != null && i !== good ? ' dim' : '') });
+        seg.style.width = '0%';
+        if (revealed && tot) requestAnimationFrame(() => requestAnimationFrame(() => (seg.style.width = (n / tot * 100) + '%')));
+        return seg;
+      }));
+      const okPct = tot && good != null ? Math.round(counts[good] / tot * 100) : null;
+      return h('div', { class: 'mrow' },
+        h('div', { class: 'mitem-t' }, h('span', { class: 'mono muted' }, String(k + 1).padStart(2, '0')), ' ', item),
+        bar,
+        h('div', { class: 'mans' }, revealed && good != null
+          ? [h('b', { class: `ink c${good}` }, s.options[good]), okPct != null ? h('span', { class: 'muted' }, ` ${okPct} %`) : null]
+          : ''));
+    });
+    return h('div', { class: 'mstage' }, legend, ...rows);
   }
 
   function estimateReveal(s, stats) {
@@ -402,6 +451,7 @@
       const byPos = [rows[1], rows[0], rows[2]];
       const cls = ['p2', 'p1', 'p3'];
       const pods = byPos.map((r, i) => h('div', { class: 'pod ' + cls[i] },
+        cls[i] === 'p1' ? h('div', { class: 'crown' }, '♛') : null,
         h('div', { class: 'nm' }, r ? r.pseudo : '—'),
         h('div', { class: 'sc' }, r ? fmt(r.score) + ' pts' : ''),
         h('div', { class: 'block' }, cls[i].slice(1))));
@@ -419,7 +469,7 @@
   function confetti(canvas) {
     const ctx = canvas.getContext('2d');
     const W = canvas.width = canvas.offsetWidth, H = canvas.height = canvas.offsetHeight;
-    const colors = ['#e8b24a', '#c4532b', '#7fb27a', '#7d4370', '#f4ede4'];
+    const colors = ['#22b2a6', '#0f3d33', '#e48aa6', '#f7c6d5', '#9fdcd5', '#c9587f'];
     const ps = Array.from({ length: 220 }, () => ({
       x: Math.random() * W, y: -Math.random() * H * .6, r: 4 + Math.random() * 6,
       vx: -1.5 + Math.random() * 3, vy: 2 + Math.random() * 4, a: Math.random() * 6.28, va: -.2 + Math.random() * .4,
@@ -479,6 +529,16 @@
     const t = h('div', { style: 'position:fixed;top:1rem;left:50%;transform:translateX(-50%);background:var(--bad);color:#fff;padding:.7rem 1.2rem;border-radius:10px;z-index:40' }, msg);
     document.body.append(t); setTimeout(() => t.remove(), 3500);
   }
+
+  // Accès pour la présentation web (presentation.html)
+  window.GAME = {
+    A, isVote, cur,
+    act, next, prev, render, pollStats, loadStats, loadState, toast,
+    goto: i => goto(i), reveal: () => reveal(), showBoard: () => showBoard(), podium: () => podium(),
+    slide: async label => { setState(await Backend.rpc('admin_slide', { p_label: label })); },
+    isBusy: () => busy,
+    openPlayers, openReset, logout, fullscreen,
+  };
 
   init();
 })();

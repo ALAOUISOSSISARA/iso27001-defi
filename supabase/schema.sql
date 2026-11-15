@@ -8,7 +8,8 @@
 --   * Les bonnes réponses ne quittent jamais la base avant la révélation.
 --   * Les points sont calculés côté serveur, avec l'horloge du serveur.
 --
---  À exécuter une fois dans Supabase > SQL Editor, puis seed.sql.
+--  Réexécutable sans risque (y compris sur une base déjà installée),
+--  puis exécuter seed.sql.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -21,25 +22,37 @@ create table if not exists public.admins (
 
 create table if not exists public.steps (
   idx            int primary key,
-  kind           text not null check (kind in ('intro','question','estimate','incident')),
-  clause         text,                 -- ex. "Clause 4 — Contexte"
+  kind           text not null,
+  clause         text,                 -- petite étiquette en haut de l'écran
   title          text not null,
   body           text,
-  options        jsonb,                -- ["...", "...", "...", "..."] pour kind = question
+  options        jsonb,                -- ["...", "...", "...", "..."]
   est_min        numeric,
   est_max        numeric,
   est_step       numeric,
   est_unit       text,
-  time_limit     int  not null default 20,   -- secondes
+  time_limit     int  not null default 30,   -- secondes
   multiplier     int  not null default 1,
   -- ---- secret : jamais renvoyé aux joueurs avant la révélation ----
   correct_choice int,
   correct_value  numeric,
-  tolerance      numeric,              -- écart donnant 100 % des points
-  zero_at        numeric,              -- écart donnant 0 point
+  tolerance      numeric,
+  zero_at        numeric,
   explanation    text,
-  story          jsonb                 -- puces affichées côté présentateur à la révélation
+  story          jsonb
 );
+
+-- Colonnes ajoutées pour les votes (v2) — sans effet si elles existent déjà
+alter table public.steps add column if not exists scored        boolean not null default true;  -- false = vote, 0 point
+alter table public.steps add column if not exists active        boolean not null default true;  -- false = étape ignorée
+alter table public.steps add column if not exists label         text;    -- ex. « Vote 3 »
+alter table public.steps add column if not exists items         jsonb;   -- multi : éléments à classer
+alter table public.steps add column if not exists correct_items jsonb;   -- multi : bonne option par élément (secret)
+alter table public.steps add column if not exists compare_to    int;     -- revote : étape à comparer
+
+alter table public.steps drop constraint if exists steps_kind_check;
+alter table public.steps add constraint steps_kind_check
+  check (kind in ('intro','question','estimate','incident','multi'));
 
 create table if not exists public.game_state (
   id            int primary key default 1 check (id = 1),
@@ -51,6 +64,12 @@ create table if not exists public.game_state (
   updated_at    timestamptz not null default now()
 );
 insert into public.game_state (id) values (1) on conflict (id) do nothing;
+
+-- v3 : la présentation web pilote aussi les téléphones entre deux votes
+alter table public.game_state add column if not exists slide_label text;
+alter table public.game_state drop constraint if exists game_state_phase_check;
+alter table public.game_state add constraint game_state_phase_check
+  check (phase in ('lobby','show','question','reveal','podium','slide'));
 
 create table if not exists public.players (
   id          uuid primary key default gen_random_uuid(),
@@ -72,10 +91,10 @@ create table if not exists public.answers (
   answered_at timestamptz not null default now(),
   primary key (player_id, step)
 );
+alter table public.answers add column if not exists choices jsonb;   -- multi : une option par élément
 
 -- ---------------------------------------------------------------------
 -- Row Level Security : tout est fermé, sauf la lecture de game_state
--- (nécessaire pour la synchronisation en temps réel).
 -- ---------------------------------------------------------------------
 alter table public.admins     enable row level security;
 alter table public.steps      enable row level security;
@@ -101,7 +120,6 @@ language sql immutable set search_path = public as $$
   select encode(sha256(convert_to(t, 'UTF8')), 'hex');
 $$;
 
--- Retourne l'id du joueur si (id, token) est valide et non exclu, sinon erreur.
 create or replace function public._check_player(p_id uuid, p_token text) returns uuid
 language plpgsql stable security definer set search_path = public as $$
 declare v_banned boolean;
@@ -149,11 +167,12 @@ language sql stable security definer set search_path = public as $$
     'started_at',    g.started_at,
     'server_now',    now(),
     'revealed_upto', g.revealed_upto,
-    'total_steps',   (select count(*) from public.steps),
+    'slide_label',   g.slide_label,
     'content', case when g.phase in ('show','question','reveal') then (
         select json_build_object(
           'idx', s.idx, 'kind', s.kind, 'clause', s.clause, 'title', s.title,
-          'body', s.body, 'options', s.options,
+          'body', s.body, 'options', s.options, 'items', s.items,
+          'scored', s.scored, 'label', s.label,
           'est_min', s.est_min, 'est_max', s.est_max, 'est_step', s.est_step,
           'est_unit', s.est_unit, 'time_limit', s.time_limit, 'multiplier', s.multiplier)
         from public.steps s where s.idx = g.step)
@@ -162,8 +181,11 @@ language sql stable security definer set search_path = public as $$
   from public.game_state g where g.id = 1;
 $$;
 
+drop function if exists public.submit_answer(uuid, text, int, int, numeric);
+
 create or replace function public.submit_answer(
-  p_id uuid, p_token text, p_step int, p_choice int default null, p_value numeric default null
+  p_id uuid, p_token text, p_step int,
+  p_choice int default null, p_value numeric default null, p_choices jsonb default null
 ) returns json
 language plpgsql volatile security definer set search_path = public as $$
 declare
@@ -172,11 +194,12 @@ declare
   v_ms     int;
   v_ok     boolean;
   v_frac   numeric;
-  v_base   int;
+  v_base   int := 0;
   v_bonus  int := 0;
   v_points int;
   v_prev   int[];
   v_rows   int;
+  v_n      int;
 begin
   perform public._check_player(p_id, p_token);
   select * into g from public.game_state where id = 1;
@@ -191,8 +214,7 @@ begin
     if p_choice is null or p_choice < 0 or p_choice >= jsonb_array_length(s.options) then
       raise exception 'BAD_INPUT';
     end if;
-    v_ok   := (p_choice = s.correct_choice);
-    -- 500 à 1000 points selon la rapidité
+    v_ok   := coalesce(p_choice = s.correct_choice, false);
     v_base := case when v_ok
                 then round(500 + 500 * (1 - v_ms::numeric / (s.time_limit * 1000)))
                 else 0 end;
@@ -207,15 +229,33 @@ begin
       else 1 - (abs(p_value - s.correct_value) - s.tolerance) / (s.zero_at - s.tolerance)
     end;
     v_base := round(1000 * v_frac);
+  elsif s.kind = 'multi' then
+    if p_choices is null or jsonb_typeof(p_choices) <> 'array'
+       or jsonb_array_length(p_choices) <> jsonb_array_length(s.items) then
+      raise exception 'BAD_INPUT';
+    end if;
+    select count(*) into v_n from jsonb_array_elements(p_choices) e
+     where jsonb_typeof(e) <> 'number'
+        or (e::text)::int < 0 or (e::text)::int >= jsonb_array_length(s.options);
+    if v_n > 0 then raise exception 'BAD_INPUT'; end if;
+    v_ok := s.correct_items is not null and p_choices = s.correct_items;
+    -- 1000 points répartis sur les éléments bien placés (si l'étape est notée)
+    select count(*) into v_n
+      from jsonb_array_elements(p_choices) with ordinality a(v, i)
+      join jsonb_array_elements(coalesce(s.correct_items, '[]'::jsonb)) with ordinality c(v, i) using (i)
+     where a.v = c.v;
+    v_base := round(1000.0 * v_n / jsonb_array_length(s.items));
   else
     raise exception 'CLOSED';
   end if;
 
-  -- Bonus de série : 3 bonnes réponses d'affilée (+200)
-  if v_ok then
+  if not s.scored then
+    v_base := 0;
+  elsif v_ok then
+    -- Bonus de série : 3 bonnes réponses notées d'affilée (+200)
     select array_agg(idx) into v_prev from (
       select idx from public.steps
-       where kind in ('question','estimate') and idx < p_step
+       where kind in ('question','estimate','multi') and scored and active and idx < p_step
        order by idx desc limit 2) t;
     if coalesce(array_length(v_prev, 1), 0) = 2 and
        (select count(*) from public.answers
@@ -226,8 +266,8 @@ begin
 
   v_points := v_base * s.multiplier + v_bonus;
 
-  insert into public.answers (player_id, step, choice, value, elapsed_ms, correct, points)
-  values (p_id, p_step, p_choice, p_value, v_ms, v_ok, v_points)
+  insert into public.answers (player_id, step, choice, value, choices, elapsed_ms, correct, points)
+  values (p_id, p_step, p_choice, p_value, p_choices, v_ms, v_ok, v_points)
   on conflict (player_id, step) do nothing;
   get diagnostics v_rows = row_count;
   if v_rows = 0 then raise exception 'ALREADY_ANSWERED'; end if;
@@ -259,22 +299,25 @@ begin
      where not p.banned
      group by p.id)
   select (select score from scores where id = p_id),
-         (select count(*) from scores) ,
+         (select count(*) from scores),
          1 + (select count(*) from scores where score > (select score from scores where id = p_id))
     into v_score, v_total, v_rank;
 
   select * into s from public.steps where idx = g.step;
   select * into a from public.answers where player_id = p_id and step = g.step;
 
-  if g.phase = 'reveal' and s.kind in ('question','estimate') then
+  if g.phase = 'reveal' and s.kind in ('question','estimate','multi') then
     v_result := json_build_object(
       'answered', a.player_id is not null,
       'correct',  coalesce(a.correct, false),
       'points',   coalesce(a.points, 0),
       'choice',   a.choice,
       'value',    a.value,
+      'choices',  a.choices,
+      'scored',   s.scored,
       'correct_choice', s.correct_choice,
       'correct_value',  s.correct_value,
+      'correct_items',  s.correct_items,
       'explanation',    s.explanation);
   end if;
 
@@ -284,7 +327,6 @@ begin
     'result', v_result);
 end $$;
 
--- Classement public : ne compte que les questions déjà révélées.
 create or replace function public.get_leaderboard(p_limit int default 10)
 returns table (pseudo text, score int, rank int)
 language sql stable security definer set search_path = public as $$
@@ -311,6 +353,7 @@ begin
   if not public.is_admin() then raise exception 'NOT_ADMIN'; end if;
 end $$;
 
+drop function if exists public.admin_get_steps();
 create or replace function public.admin_get_steps() returns setof public.steps
 language plpgsql stable security definer set search_path = public as $$
 begin
@@ -327,7 +370,7 @@ begin
   if not found then raise exception 'NO_SUCH_STEP'; end if;
   update public.game_state set
     step       = p_step,
-    phase      = case when s.kind in ('question','estimate') then 'question' else 'show' end,
+    phase      = case when s.kind in ('question','estimate','multi') then 'question' else 'show' end,
     started_at = now(),
     updated_at = now()
   where id = 1;
@@ -357,12 +400,24 @@ begin
   return public.get_state();
 end $$;
 
+-- Slide de la présentation : les téléphones affichent « Suivez la présentation »
+create or replace function public.admin_slide(p_label text) returns json
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform public._require_admin();
+  update public.game_state set
+    phase = 'slide', slide_label = left(coalesce(p_label, ''), 120), updated_at = now()
+  where id = 1;
+  return public.get_state();
+end $$;
+
 create or replace function public.admin_stats() returns json
 language plpgsql stable security definer set search_path = public as $$
-declare g public.game_state;
+declare g public.game_state; s public.steps;
 begin
   perform public._require_admin();
   select * into g from public.game_state where id = 1;
+  select * into s from public.steps where idx = g.step;
   return json_build_object(
     'players',  (select count(*) from public.players where not banned),
     'answered', (select count(*) from public.answers a join public.players p on p.id = a.player_id
@@ -372,11 +427,35 @@ begin
                                join public.players p on p.id = a.player_id
                               where a.step = g.step and a.choice is not null and not p.banned
                               group by a.choice) d),
+    'item_distribution', (select coalesce(json_agg(json_build_object('item', item, 'choice', choice, 'n', n)), '[]'::json)
+                       from (select (e.i - 1)::int as item, (e.v::text)::int as choice, count(*) n
+                               from public.answers a
+                               join public.players p on p.id = a.player_id
+                               cross join lateral jsonb_array_elements(a.choices) with ordinality e(v, i)
+                              where a.step = g.step and a.choices is not null and not p.banned
+                              group by 1, 2) d),
     'values', (select coalesce(json_agg(a.value order by a.value), '[]'::json)
                  from public.answers a join public.players p on p.id = a.player_id
                 where a.step = g.step and a.value is not null and not p.banned),
     'correct_count', (select count(*) from public.answers a join public.players p on p.id = a.player_id
                        where a.step = g.step and a.correct and not p.banned),
+    -- Revote : combien ont changé d'avis par rapport à l'étape comparée
+    'changed', case when s.compare_to is null then null else (
+                 select count(*) from public.answers a
+                   join public.answers b on b.player_id = a.player_id and b.step = s.compare_to
+                   join public.players p on p.id = a.player_id
+                  where a.step = g.step and not p.banned and a.choice is distinct from b.choice) end,
+    'compared', case when s.compare_to is null then null else (
+                 select count(*) from public.answers a
+                   join public.answers b on b.player_id = a.player_id and b.step = s.compare_to
+                   join public.players p on p.id = a.player_id
+                  where a.step = g.step and not p.banned) end,
+    'previous', case when s.compare_to is null then null else (
+                 select coalesce(json_agg(json_build_object('choice', choice, 'n', n) order by choice), '[]'::json)
+                   from (select a.choice, count(*) n from public.answers a
+                           join public.players p on p.id = a.player_id
+                          where a.step = s.compare_to and a.choice is not null and not p.banned
+                          group by a.choice) d) end,
     'recent', (select coalesce(json_agg(pseudo), '[]'::json) from (
                  select pseudo from public.players where not banned
                   order by created_at desc limit 40) r)
@@ -420,11 +499,11 @@ revoke all on function public._hash(text)                 from public;
 revoke all on function public._check_player(uuid, text)   from public;
 revoke all on function public._require_admin()            from public;
 
-grant execute on function public.register_player(text)                              to anon, authenticated;
-grant execute on function public.get_state()                                        to anon, authenticated;
-grant execute on function public.submit_answer(uuid, text, int, int, numeric)       to anon, authenticated;
-grant execute on function public.get_my_status(uuid, text)                          to anon, authenticated;
-grant execute on function public.get_leaderboard(int)                               to anon, authenticated;
+grant execute on function public.register_player(text)                                  to anon, authenticated;
+grant execute on function public.get_state()                                            to anon, authenticated;
+grant execute on function public.submit_answer(uuid, text, int, int, numeric, jsonb)    to anon, authenticated;
+grant execute on function public.get_my_status(uuid, text)                              to anon, authenticated;
+grant execute on function public.get_leaderboard(int)                                   to anon, authenticated;
 
 revoke all on function public.admin_get_steps()     from public, anon;
 revoke all on function public.admin_goto(int)       from public, anon;
@@ -434,6 +513,8 @@ revoke all on function public.admin_stats()         from public, anon;
 revoke all on function public.admin_players()       from public, anon;
 revoke all on function public.admin_kick(uuid)      from public, anon;
 revoke all on function public.admin_reset(text)     from public, anon;
+revoke all on function public.admin_slide(text)     from public, anon;
+grant execute on function public.admin_slide(text)     to authenticated;
 grant execute on function public.admin_get_steps()     to authenticated;
 grant execute on function public.admin_goto(int)       to authenticated;
 grant execute on function public.admin_reveal()        to authenticated;
