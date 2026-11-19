@@ -79,9 +79,17 @@
     updateBar();
   }
 
-  function phoneLabel() {
-    const s = SL[D.pos];
-    if (!D.online || s.kind === 'lobby' || s.label === D.lastLabel) return;
+  // Les téléphones suivent la slide : aucune question/vote n'est ouvert tant
+  // qu'on n'y est pas arrivé. Toute question restée ouverte (simulation,
+  // retour en arrière, changement de slide) est refermée ici.
+  function phoneLabel(force) {
+    if (!D.online || !D.G) return;
+    const s = SL[D.pos], st = D.G.A.state || {};
+    if (s.kind === 'lobby') {
+      if (st.phase !== 'lobby') { D.lastLabel = null; D.G.lobby().catch(() => {}); }
+      return;
+    }
+    if (!force && s.label === D.lastLabel && st.phase === 'slide') return;
     D.lastLabel = s.label;
     D.G.slide(s.label).catch(() => {});
   }
@@ -119,18 +127,24 @@
   }
 
   function prev() {
-    if (D.gameOn) { showGame(false); D.voteIdx = -1; D.quizOn = false; render(); return; }
+    if (D.gameOn) { showGame(false); D.voteIdx = -1; D.quizOn = false; render(); phoneLabel(true); return; }
     if (D.step > 0) { D.step--; applySteps(frame.firstElementChild, D.step); return; }
     go(D.pos - 1, true);
   }
 
   // Barre discrète en bas (apparaît au survol)
+  // Classement à la demande, seulement sur une réponse révélée du quiz
+  function showBoard() {
+    if (!D.G || !D.gameOn || D.G.A.state.phase !== 'reveal') return;
+    D.G.act(() => D.G.showBoard());
+  }
   const ct = h('span', { class: 'ct' });
   const status = h('span', {});
   const bar = h('div', { class: 'dbar' },
     h('button', { class: 'btn ghost', onclick: prev }, '◀'),
     h('button', { class: 'btn', onclick: next }, 'Suivant ▶'),
     ct, status, h('span', { class: 'sp' }),
+    h('button', { class: 'btn ghost', onclick: showBoard }, 'Classement (C)'),
     h('button', { class: 'btn ghost', onclick: () => D.G && D.G.openPlayers() }, 'Joueurs'),
     h('button', { class: 'btn ghost', onclick: () => D.G && D.G.openReset() }, 'Réinitialiser le jeu'),
     h('button', { class: 'btn ghost', onclick: () => { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); } catch (e) {} } }, 'Plein écran (F)'));
@@ -144,12 +158,14 @@
     showGame(false);
     document.body.append(bar);
     render();
+    phoneLabel(true);
     document.addEventListener('keydown', e => {
       if (e.target.closest && e.target.closest('input, .modal, .drawer')) return;
       if (['ArrowRight', ' ', 'PageDown', 'Enter'].includes(e.key)) { e.preventDefault(); next(); }
       else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
       else if (e.key === 'f' || e.key === 'F') { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); } catch (er) {} }
       else if (e.key === 'Home') go(0);
+      else if (e.key === 'c' || e.key === 'C') showBoard();
     });
     // Compteur de connectés sur la slide « Sortez vos téléphones »
     setInterval(() => {

@@ -23,13 +23,13 @@ values
 (0, 'question', 'Vote 1', 'Hypothèse',
  'Ils ont trouvé un seul serveur intact. Qu''est-ce qui l''a sauvé ?', null,
  '["Un antivirus haut de gamme", "Une sauvegarde hors ligne bien planifiée", "Un pare-feu parfaitement configuré", "Autre chose…"]',
- null, false, 30, null, null, null,
+ null, false, 25, null, null, null,
  'Réponse à la toute fin de la présentation.'),
 
 (1, 'question', 'Vote 2', 'Retour chez Maersk',
  'Chez Maersk, quel pilier a cédé en premier ?', null,
  '["Confidentialité", "Intégrité", "Disponibilité"]',
- null, false, 30, 2, null, null,
+ null, false, 25, 2, null, null,
  'Disponibilité : disques effacés, plus aucun système ne répond. NotPetya ne cherchait pas à voler des données mais à tout rendre inutilisable.'),
 
 (2, 'multi', 'Vote 3', 'Placez-les dans le cycle',
@@ -55,24 +55,24 @@ values
 (5, 'question', 'Vote 6', 'Sketch d''audit',
  'Votre verdict ?', 'Aucune preuve écrite de revue des droits d''accès.',
  '["Conforme", "Non-conformité mineure", "Non-conformité majeure"]',
- null, false, 30, null, null, null,
+ null, false, 25, null, null, null,
  'Sans preuve, l''exigence n''est pas démontrée (5.18, droits d''accès). Écart isolé : mineure. Aucun processus du tout : majeure.'),
 
 (6, 'question', 'Vote 7 · 1er tour', 'Débat express',
  '« Une entreprise certifiée ISO 27001 est une entreprise sécurisée. »', null,
  '["D''accord", "Pas d''accord"]',
- null, false, 30, null, null, null, null),
+ null, false, 25, null, null, null, null),
 
 (7, 'question', 'Vote 7 · 2e tour', 'Débat express · on revote',
  '« Une entreprise certifiée ISO 27001 est une entreprise sécurisée. »', 'Après les arguments : avez-vous changé d''avis ?',
  '["D''accord", "Pas d''accord"]',
- null, false, 30, null, null, 6,
+ null, false, 25, null, null, 6,
  'Certifié ne veut pas dire inviolable : le certificat atteste qu''un système de management fonctionne sur un périmètre, pas qu''aucune attaque ne réussira.');
 
 -- ---------------------------------------------------- ÉCRAN D'ENTRÉE DU QUIZ
 insert into public.steps (idx, kind, label, clause, title, body, scored)
 values (8, 'intro', null, 'Quiz final', 'Place au quiz.',
- '17 questions sur toute la norme, appliquée à l''affaire Maersk. 30 secondes chacune, classement en direct. La dernière compte double.', true);
+ '17 questions sur toute la norme, appliquée à l''affaire Maersk. 25 à 30 secondes chacune, classement dévoilé à la fin. La dernière compte double.', true);
 
 -- ------------------------------------------------------------- QUIZ FINAL
 insert into public.steps
@@ -85,7 +85,7 @@ values
 (9, 'question', '01 — Principes · CID',
  'Les données clients de Maersk fuitent sur un forum. Quel critère est atteint ?', null,
  '["Disponibilité", "Intégrité", "Confidentialité", "Traçabilité"]',
- null, null, null, null, 30, 1, 2, null, null, null,
+ null, null, null, null, 25, 1, 2, null, null, null,
  'Confidentialité : une personne non autorisée accède à l''information. NotPetya, lui, a frappé la disponibilité.'),
 
 (10, 'question', '01 — Principes · Risque',
@@ -97,20 +97,20 @@ values
 (11, 'question', '01 — Principes · Traitement',
  'Maersk souscrit une cyber-assurance contre les rançongiciels. Quelle option de traitement ?', null,
  '["Réduire", "Éviter", "Accepter", "Transférer"]',
- null, null, null, null, 30, 1, 3, null, null, null,
+ null, null, null, null, 25, 1, 3, null, null, null,
  'Transférer : le coût passe à l''assureur, mais le risque reste. Plusieurs victimes de NotPetya ont vu leur assureur invoquer l''exclusion « acte de guerre ».'),
 
 -- 02 — PDCA et structure
 (12, 'question', '02 — Structure · Clause 5',
  'Qui doit établir et approuver la politique de sécurité ?', null,
  '["La direction générale", "Le RSSI", "Le DSI", "L''auditeur de certification"]',
- null, null, null, null, 30, 1, 0, null, null, null,
+ null, null, null, null, 25, 1, 0, null, null, null,
  'Clause 5.2 : la direction établit la politique. Le RSSI la rédige et la pilote, mais sans engagement de la direction, pas de certification.'),
 
 (13, 'question', '02 — Structure · PDCA',
  'Dans quelle clause trouve-t-on l''audit interne et la revue de direction ?', null,
  '["Clause 6 — Planification", "Clause 8 — Fonctionnement", "Clause 9 — Évaluation des performances", "Clause 10 — Amélioration"]',
- null, null, null, null, 30, 1, 2, null, null, null,
+ null, null, null, null, 28, 1, 2, null, null, null,
  'Clause 9, le « Check » du PDCA : 9.1 mesure, 9.2 audit interne, 9.3 revue de direction.'),
 
 (14, 'question', '02 — Structure · Clause 7',
@@ -123,7 +123,7 @@ values
 (15, 'question', '03 — Annexe A',
  'Combien de contrôles compte l''Annexe A de la version 2022 ?', null,
  '["114", "93", "34", "11"]',
- null, null, null, null, 30, 1, 1, null, null, null,
+ null, null, null, null, 25, 1, 1, null, null, null,
  '93 contrôles en 4 thèmes : 37 organisationnels, 8 humains, 14 physiques et 34 technologiques. La version 2013 en comptait 114.'),
 
 (16, 'question', '03 — Annexe A · Fournisseurs',
@@ -135,19 +135,19 @@ values
 (17, 'question', '03 — Annexe A · Accès',
  'Pour se propager, NotPetya volait les mots de passe administrateur en mémoire. Quel contrôle limite ce risque ?', null,
  '["5.9 — Inventaire des actifs", "8.2 — Droits d''accès privilégiés", "8.23 — Filtrage web", "7.7 — Bureau propre et écran verrouillé"]',
- null, null, null, null, 30, 1, 1, null, null, null,
+ null, null, null, null, 28, 1, 1, null, null, null,
  '8.2 : limiter, séparer et surveiller les comptes à privilèges. Un même compte administrateur partout, c''est un passe-partout pour le ver.'),
 
 (18, 'question', '03 — Annexe A · Version 2022',
  'Lequel de ces contrôles est nouveau dans la version 2022 ?', null,
  '["8.13 — Sauvegarde des informations", "5.1 — Politiques de sécurité", "5.30 — Préparation des TIC pour la continuité", "8.5 — Authentification sécurisée"]',
- null, null, null, null, 30, 1, 2, null, null, null,
+ null, null, null, null, 28, 1, 2, null, null, null,
  '5.30 fait partie des 11 nouveaux contrôles, et c''est le lien direct entre ISO 27001 et notre module PCA/PRA.'),
 
 (19, 'estimate', '03 — Lien PCA/PRA · BIA',
  'Quel RTO maximal fixer pour le système de réservation ?',
  'Hypothèse : une heure d''arrêt coûte environ 1,5 M$. La direction tolère au plus 72 M$ de pertes.',
- null, 0, 120, 1, 'h', 40, 1, null, 48, 2, 30,
+ null, 0, 120, 1, 'h', 30, 1, null, 48, 2, 30,
  'RTO ≤ perte tolérable ÷ coût horaire = 72 ÷ 1,5 = 48 h. Maersk, elle, a mis environ 10 jours (≈ 240 h).'),
 
 -- 04 — Mise en œuvre
@@ -160,26 +160,26 @@ values
 (21, 'question', '04 — Mise en œuvre · Étapes',
  'Par quelle étape commence la construction d''un SMSI ?', null,
  '["Choisir les contrôles de l''Annexe A", "Définir le périmètre et le contexte", "Lancer l''audit interne", "Former le personnel"]',
- null, null, null, null, 30, 1, 1, null, null, null,
+ null, null, null, null, 25, 1, 1, null, null, null,
  'Clause 4 d''abord : on ne protège bien que ce qu''on a délimité. Les contrôles viennent après l''appréciation des risques.'),
 
 (22, 'question', '04 — Mise en œuvre · Incident',
  'Lundi, 14 h : tous les écrans affichent une demande de rançon. Quelle est la première action ?', null,
  '["Payer la rançon", "Restaurer immédiatement les sauvegardes", "Isoler les systèmes touchés", "Prévenir la presse"]',
- null, null, null, null, 30, 1, 2, null, null, null,
+ null, null, null, null, 28, 1, 2, null, null, null,
  'Endiguer d''abord (5.26) : restaurer sans isoler, c''est réinfecter les sauvegardes. Et NotPetya était un wiper : payer n''aurait rien rendu.'),
 
 -- 05 — Certification et contexte
 (23, 'question', '05 — Certification',
  'Une fois obtenu, combien de temps un certificat ISO 27001 est-il valable ?', null,
  '["1 an, sans contrôle", "5 ans, avec un audit à mi-parcours", "À vie, une fois obtenu", "3 ans, avec des audits de surveillance annuels"]',
- null, null, null, null, 30, 1, 3, null, null, null,
+ null, null, null, null, 28, 1, 3, null, null, null,
  'Cycle de 3 ans : certification, surveillance en années 1 et 2, puis recertification. Le SMSI doit vivre toute l''année, pas seulement le jour de l''audit.'),
 
 (24, 'question', '05 — Et pour nous ?',
  'Quelle loi marocaine impose des règles de cybersécurité aux administrations et aux infrastructures d''importance vitale ?', null,
  '["Loi 09-08", "Loi 05-20", "Loi 53-05", "Loi 31-08"]',
- null, null, null, null, 30, 1, 1, null, null, null,
+ null, null, null, null, 28, 1, 1, null, null, null,
  'Loi 05-20 relative à la cybersécurité. La 09-08 protège les données personnelles, la 53-05 encadre l''échange électronique de données juridiques.'),
 
 (25, 'question', '05 — Amélioration · Question finale',

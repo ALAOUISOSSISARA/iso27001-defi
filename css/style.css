@@ -426,3 +426,30 @@ body {
 .tag::after { content: ' ✿'; color: var(--rose); letter-spacing: 0; }
 .p-top .who::before { content: '✿ '; color: var(--rose); }
 .est-box { border-radius: 24px; }
+
+/* ---------- Podium v2 : révélation progressive ---------- */
+.podium-v2 { position: relative; height: 50vh; margin-top: 1vh; }
+.podium-v2 .pod { opacity: 1; transform: none; transition: none; height: 100%; justify-content: flex-end; }
+.podium-v2 .pod .who { opacity: 0; transform: translateY(18px) scale(.9); transition: opacity .5s ease, transform .6s cubic-bezier(.2,1.4,.4,1); display: flex; flex-direction: column; align-items: center; gap: .6vh; }
+.podium-v2 .pod.named .who { opacity: 1; transform: none; }
+.podium-v2 .pod .block { transform: scaleY(0); transform-origin: bottom; transition: transform 1s cubic-bezier(.2,.9,.25,1); }
+.podium-v2 .pod.rise .block { transform: scaleY(1); }
+.podium-v2 .pod .block span { opacity: 0; transition: opacity .4s .7s; }
+.podium-v2 .pod.rise .block span { opacity: 1; }
+.podium-v2 .pod.p1 .block { transition-duration: 1.8s; }
+.podium-v2 .pod .sc { font-variant-numeric: tabular-nums; }
+.podium-v2 .pod.p1.named .nm { font-size: clamp(28px, 3.4vw, 62px); color: var(--accent-ink); }
+.podium-v2 .pod.glow { position: relative; }
+.podium-v2 .pod.glow::before { content: ''; position: absolute; left: 50%; bottom: 8%; width: 150%; height: 130%; transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(34,178,166,.28), rgba(228,138,166,.14) 55%, transparent 75%);
+  z-index: -1; animation: podGlow 2.4s ease-in-out infinite; }
+@keyframes podGlow { 0%,100% { opacity: .65; transform: translateX(-50%) scale(.96); } 50% { opacity: 1; transform: translateX(-50%) scale(1.04); } }
+.podium-v2.final .pod:not(.p1) { opacity: .82; transition: opacity .8s; }
+.pod-cap { text-align: center; min-height: 1.4em; margin-top: 1vh; font-family: var(--serif); font-style: italic; font-weight: 600;
+  color: var(--rose-deep); font-size: clamp(20px, 2vw, 36px); opacity: 0; transform: translateY(8px); }
+.pod-cap.on { opacity: 1; transform: none; transition: opacity .45s, transform .45s; }
+.pod-cap.big { font-size: clamp(24px, 2.6vw, 46px); }
+.pod-rest { justify-content: center; margin-top: 2.5vh; }
+.pod-rest span { animation: pop .45s ease-out both; }
+#confetti { width: 100%; height: 100%; z-index: 5; }
+.pod-cap { height: calc(clamp(24px, 2.6vw, 46px) * 1.35); line-height: 1.35; min-height: 0; }

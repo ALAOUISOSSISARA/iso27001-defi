@@ -78,7 +78,7 @@
       <div>
         <h1>Sortez vos <em>téléphones.</em></h1>
         <p class="lead">Scannez, entrez votre prénom et gardez la page ouverte. Vous voterez pendant toute la présentation.</p>
-        <p class="lead" style="color:var(--text);font-weight:600">Le quiz final est classé en direct.</p>
+        <p class="lead" style="color:var(--text);font-weight:600">Le quiz final est classé : podium à la fin.</p>
         <div style="margin-top:56px;font-size:30px"><span id="lobby-count" style="font-size:96px;font-weight:800;color:var(--accent)">0</span>&nbsp; connectés</div>
       </div>
       <div class="qrbox">${c.qr(c.site)}<div class="u">${c.siteShort}</div></div>

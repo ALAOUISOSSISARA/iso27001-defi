@@ -127,7 +127,8 @@
         if (isVote(s)) return after();
         const story = (s && s.story) || [];
         if (A.view === 'main' && A.storyIdx < story.length) { A.storyIdx++; return render(); }
-        if (A.view === 'main') return showBoard();
+        // Classement discret : plus d'affichage automatique entre les questions
+        // (touche C ou bouton « Classement » pour l'afficher à la demande).
         return after();
       }
     });
@@ -185,6 +186,7 @@
       if (['ArrowRight', ' ', 'PageDown', 'Enter'].includes(e.key)) { e.preventDefault(); next(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
       else if (e.key === 'f' || e.key === 'F') fullscreen();
+      else if ((e.key === 'c' || e.key === 'C') && A.state.phase === 'reveal') act(showBoard);
     });
   }
 
@@ -203,7 +205,7 @@
     if (st.phase === 'reveal' && isVote(s)) return nxt ? (isVote(nxt) ? `Ouvrir le ${nxt.label.toLowerCase()} ▶` : 'Suite ▶') : 'Podium ▶';
     if (st.phase === 'reveal' && A.view === 'main') {
       const story = (s && s.story) || [];
-      return A.storyIdx < story.length ? `Ce qui s'est passé (${A.storyIdx + 1}/${story.length}) ▶` : 'Classement ▶';
+      if (A.storyIdx < story.length) return `Ce qui s'est passé (${A.storyIdx + 1}/${story.length}) ▶`;
     }
     return nxt ? (isVote(nxt) ? `Ouvrir le ${nxt.label.toLowerCase()} ▶` : 'Suite ▶') : 'Podium ▶';
   }
@@ -444,45 +446,75 @@
   }
 
   function viewPodium() {
-    const wrap = h('div', { class: 'podium' });
-    const rest = h('div', { class: 'names', style: 'justify-content:center;margin-top:2.5vh' });
+    const wrap = h('div', { class: 'podium podium-v2' });
+    const cap = h('div', { class: 'pod-cap' }, '');
+    const rest = h('div', { class: 'names pod-rest' });
     const canvas = h('canvas', { id: 'confetti' });
+    const T = (ms, fn) => A.podiumTimers.push(setTimeout(fn, ms));
+    const say = (txt, cls) => { cap.classList.remove('on', 'big'); void cap.offsetWidth;
+      cap.textContent = txt; cap.classList.add('on'); if (cls) cap.classList.add(cls); };
+    const countUp = (el, to) => {
+      const t0 = performance.now(), d = 1300;
+      (function f(t) { const k = Math.min(1, (t - t0) / d), e = 1 - Math.pow(1 - k, 3);
+        el.textContent = fmt(Math.round(to * e)) + ' pts';
+        if (k < 1 && el.isConnected) requestAnimationFrame(f); })(t0);
+    };
     Backend.rpc('get_leaderboard', { p_limit: 10 }).then(rows => {
       const byPos = [rows[1], rows[0], rows[2]];
       const cls = ['p2', 'p1', 'p3'];
-      const pods = byPos.map((r, i) => h('div', { class: 'pod ' + cls[i] },
-        cls[i] === 'p1' ? h('div', { class: 'crown' }, '♛') : null,
-        h('div', { class: 'nm' }, r ? r.pseudo : '—'),
-        h('div', { class: 'sc' }, r ? fmt(r.score) + ' pts' : ''),
-        h('div', { class: 'block' }, cls[i].slice(1))));
+      const pods = byPos.map((r, i) => {
+        const sc = h('div', { class: 'sc' }, r ? '0 pts' : '');
+        const el = h('div', { class: 'pod ' + cls[i] },
+          h('div', { class: 'who' }, h('div', { class: 'nm' }, r ? r.pseudo : '—'), sc),
+          h('div', { class: 'block' }, h('span', {}, cls[i].slice(1))));
+        el._sc = sc; el._r = r; return el;
+      });
       wrap.replaceChildren(...pods);
-      const show = (i, ms) => A.podiumTimers.push(setTimeout(() => pods[i].classList.add('on'), ms));
-      show(2, 700); show(0, 2200);
-      A.podiumTimers.push(setTimeout(() => { pods[1].classList.add('on'); confetti(canvas); }, 4000));
-      A.podiumTimers.push(setTimeout(() => {
-        rest.replaceChildren(...rows.slice(3).map(r => h('span', {}, `${ordinal(r.rank)} ${r.pseudo} · ${fmt(r.score)}`)));
-      }, 5200));
+      const reveal = (i) => { const p = pods[i]; p.classList.add('named'); if (p._r) countUp(p._sc, p._r.score); };
+      // 3e place
+      T(500, () => say('3e place'));
+      T(800, () => pods[2].classList.add('rise'));
+      T(1900, () => reveal(2));
+      // 2e place
+      T(3400, () => say('2e place'));
+      T(3700, () => pods[0].classList.add('rise'));
+      T(4800, () => reveal(0));
+      // 1re place, avec suspense
+      T(6400, () => say('Et la première place revient à…', 'big'));
+      T(6700, () => pods[1].classList.add('rise'));
+      T(9000, () => { reveal(1); pods[1].classList.add('glow'); wrap.classList.add('final');
+        say(rows[0] ? 'Bravo ' + rows[0].pseudo + ' !' : 'Bravo à tous !', 'big'); confetti(canvas, true); });
+      T(10600, () => {
+        rest.replaceChildren(...rows.slice(3).map((r, k) => h('span', { style: `animation-delay:${k * 120}ms` },
+          `${ordinal(r.rank)} ${r.pseudo} · ${fmt(r.score)}`)));
+      });
     }).catch(e => toast(e.message));
-    return [canvas, h('h1', { class: 's-title s-l', style: 'text-align:center' }, 'Podium'), wrap, rest];
+    return [canvas, h('h1', { class: 's-title s-l', style: 'text-align:center' }, 'Podium'), cap, wrap, rest];
   }
 
-  function confetti(canvas) {
+  function confetti(canvas, burst) {
     const ctx = canvas.getContext('2d');
     const W = canvas.width = canvas.offsetWidth, H = canvas.height = canvas.offsetHeight;
     const colors = ['#22b2a6', '#0f3d33', '#e48aa6', '#f7c6d5', '#9fdcd5', '#c9587f'];
-    const ps = Array.from({ length: 220 }, () => ({
-      x: Math.random() * W, y: -Math.random() * H * .6, r: 4 + Math.random() * 6,
-      vx: -1.5 + Math.random() * 3, vy: 2 + Math.random() * 4, a: Math.random() * 6.28, va: -.2 + Math.random() * .4,
-      c: colors[Math.floor(Math.random() * colors.length)] }));
+    const rain = () => ({ x: Math.random() * W, y: -Math.random() * H * .6, r: 4 + Math.random() * 7,
+      vx: -1.5 + Math.random() * 3, vy: 2 + Math.random() * 4, g: 0 });
+    const shot = side => { const ang = (side ? -1 : 1) * (0.35 + Math.random() * 0.5), v = 14 + Math.random() * 12;
+      return { x: side ? W : 0, y: H * .92, r: 5 + Math.random() * 7,
+        vx: Math.sin(ang) * v, vy: -Math.cos(Math.abs(ang)) * v, g: .32 }; };
+    const ps = [...Array.from({ length: 200 }, rain),
+      ...(burst ? Array.from({ length: 260 }, (_, k) => shot(k % 2)) : [])].map(p =>
+      Object.assign(p, { a: Math.random() * 6.28, va: -.2 + Math.random() * .4,
+        c: colors[Math.floor(Math.random() * colors.length)] }));
     const t0 = performance.now();
     (function frame(t) {
       ctx.clearRect(0, 0, W, H);
       ps.forEach(p => {
+        p.vy += p.g; if (p.g) { p.vx *= .99; if (p.vy > 4) p.vy = 4; }
         p.x += p.vx; p.y += p.vy; p.a += p.va;
         ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.fillStyle = p.c;
         ctx.fillRect(-p.r / 2, -p.r / 4, p.r, p.r / 2); ctx.restore();
       });
-      if (t - t0 < 6000 && canvas.isConnected) requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, H);
+      if (t - t0 < 7500 && canvas.isConnected) requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, H);
     })(t0);
   }
 
@@ -536,6 +568,7 @@
     act, next, prev, render, pollStats, loadStats, loadState, toast,
     goto: i => goto(i), reveal: () => reveal(), showBoard: () => showBoard(), podium: () => podium(),
     slide: async label => { setState(await Backend.rpc('admin_slide', { p_label: label })); },
+    lobby: () => toLobby(),
     isBusy: () => busy,
     openPlayers, openReset, logout, fullscreen,
   };
